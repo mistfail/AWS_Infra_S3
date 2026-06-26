@@ -1,0 +1,60 @@
+name: AWS S3 Discovery
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/s3-discovery.yml'
+      - 'scripts/**'
+      - 'requirements.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  scan-s3:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-1
+      AWS_ASSUME_ROLE_NAME: OrganizationAccountAccessRole
+      REFERENCE_FILE: data/s3_reference.json
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Scan AWS accounts for S3 buckets
+        run: |
+          python scripts/scan_s3.py --reference-file $REFERENCE_FILE --region $AWS_REGION --role-name $AWS_ASSUME_ROLE_NAME
+
+      - name: Commit updated inventory
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add $REFERENCE_FILE
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update S3 reference inventory"
+            git push
+          fi
